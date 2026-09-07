@@ -1,0 +1,183 @@
+name: Build & Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+
+concurrency:
+  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  # ═════════════════════════════════════════════════════════════════════════
+  # Build — syntax-check the single static agent file + the C2 fetch contract
+  # ═════════════════════════════════════════════════════════════════════════
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Syntax check (py_compile)
+        run: |
+          python3 -m py_compile src/python-agent.py
+          echo "syntax OK"
+
+      - name: Contract check (what AgentBinaryService.LooksLikePythonAgent gates on)
+        run: |
+          TEXT=$(cat src/python-agent.py)
+          if [ ${#TEXT} -le 200 ]; then echo "FAILED: too short (${#TEXT} chars)"; exit 1; fi
+          case "$TEXT" in \<*) echo "FAILED: looks like an error page, not Python"; exit 1;; esac
+          case "$TEXT" in *"def runAgent("*) ;; *) echo "FAILED: top-level entry 'def runAgent(' missing"; exit 1;; esac
+          echo "contract OK"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-python
+          retention-days: 1
+          path: src/
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Test — smoke run (H_URL unset ⇒ no local echo, clean 'fail')
+  # ═════════════════════════════════════════════════════════════════════════
+
+  test-smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with: { name: build-python, path: src }
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test agent (H_URL unset)
+        run: |
+          cp src/python-agent.py master.py
+          echo 'print("result: " + runAgent())' >> master.py
+          unset H_URL || true
+          OUTPUT=$(python master.py 2>&1)
+          echo "$OUTPUT"
+          # The agent must be output-clean: exactly one line, the harness's own
+          # 'result: fail' — any local echo or error text fails the build.
+          if [ "$(echo "$OUTPUT" | tr -d '\r\n')" != "result: fail" ]; then
+            echo "FAILED: expected exactly 'result: fail', got:"
+            echo "$OUTPUT"
+            exit 1
+          fi
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Gate — single required check for branch protection
+  # ═════════════════════════════════════════════════════════════════════════
+
+  all-tests:
+    if: always()
+    needs:
+      - build
+      - test-smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check all test results
+        run: |
+          echo "Build: ${{ needs.build.result }}"
+          results=(
+            "${{ needs.build.result }}"
+            "${{ needs.test-smoke.result }}"
+          )
+          for r in "${results[@]}"; do
+            if [ "$r" != "success" ]; then
+              echo "One or more jobs failed or were cancelled"
+              exit 1
+            fi
+          done
+          echo "All tests passed"
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Preview Release — publish rolling pre-release from main
+  # ═════════════════════════════════════════════════════════════════════════
+  preview-build:
+    if: github.ref == 'refs/heads/main'
+    needs: [all-tests]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Syntax check (py_compile)
+        run: |
+          python3 -m py_compile src/python-agent.py
+          echo "syntax OK"
+
+      - name: Collect release files
+        run: |
+          mkdir -p artifacts
+          cp src/python-agent.py artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: preview-python
+          retention-days: 1
+          path: artifacts/
+
+  preview-release:
+    if: github.ref == 'refs/heads/main'
+    needs: [preview-build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: preview-*
+
+      - name: Collect release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f -exec cp {} release-files/ \;
+          echo "Release files:"
+          ls -lh release-files/
+
+      - name: Create or update preview release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="preview"
+          TITLE="Preview (${GITHUB_SHA::7})"
+          BODY="Automated preview release from \`main\` branch.
+
+          **Commit:** [\`${GITHUB_SHA::7}\`](https://github.com/${{ github.repository }}/commit/${GITHUB_SHA})
+          **Date:** $(date -u '+%Y-%m-%d %H:%M UTC')
+
+          > This is a rolling pre-release that updates on every merge to \`main\`.
+          > For stable releases, see tagged versions (\`v*\`)."
+
+          # Delete existing preview release and tag if they exist
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          # Create fresh pre-release
+          gh release create "$TAG" \
+            --title "$TITLE" \
+            --notes "$BODY" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            release-files/*
