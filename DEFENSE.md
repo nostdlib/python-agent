@@ -11,22 +11,22 @@ here is a bypass technique.
   than jittered polling (the relay's 20–30 s long-poll hold sets the pacing). Each request
   carries:
   - `Content-Type: application/octet-stream`
-  - The full `X-Agent-*` identity set (API 1): `X-Agent-Machine-Uuid`, `X-Agent-Session-Key`,
-    `X-Agent-Hostname`, `X-Agent-Username`, `X-Agent-Arch`, `X-Agent-Process-Arch`,
-    `X-Agent-Platform` (`Windows` / `Linux` / `Darwin`), `X-Agent-Os-Version`, `X-Agent-Build`,
-    `X-Agent-Name-Id: 4`, `X-Agent-Capabilities: 0000000000000000` — a header cluster no
+  - The full identity header set (API 1): `X-Device-Id`, `X-Session-Id`,
+    `X-Device-Name`, `X-User-Id`, `X-Device-Arch`, `X-App-Arch`,
+    `X-Platform` (`Windows` / `Linux` / `Darwin`), `X-OS-Version`, `X-OS-Build`,
+    `X-Client-Id: 4`, `X-Client-Features: 0000000000000000` — a header cluster no
     legitimate software emits (detection-derived members are omitted when undetectable; there
     is no bitness header — the process arch carries the full width).
     **Any one of these on an internal POST is a high-confidence signature**; see the relay
     protocol docs for the full header semantics.
-  - Log ships are the same POST with `X-Agent-Log: 1`.
+  - Log ships are the same POST with `X-Log-Only: 1`.
 - **Body shape**: raw binary `[u32le length][bytes]` frames (v3). Small bodies (0–12 bytes for
   command replies) and Content-Length bodies that don't parse as text.
 - **User-Agent**: the interpreter's default (`Python-urllib/3.x` on modern hosts) — a Python
   default UA POSTing binary frames to a non-API endpoint is itself a strong triage signal.
 
-A Suricata rule keyed on the header cluster (`http.header; content:"X-Agent-Capabilities"`,
-paired with `X-Agent-Name-Id: 4`) on egress covers the whole agent family with breed
+A Suricata rule keyed on the header cluster (`http.header; content:"X-Client-Features"`,
+paired with `X-Client-Id: 4`) on egress covers the whole agent family with breed
 disambiguation for free.
 
 ## Host indicators
@@ -68,4 +68,4 @@ disambiguation for free.
 - Auditd/execve monitoring on Linux catches the file reads only indirectly (no spawns there);
   the POST cadence and UA are the egress-side tells.
 - The identity header cluster is the strongest shared signature across the whole agent family
-  (JScript/C#/PowerShell/Python breeds) — one rule, parameterized by `X-Agent-Name-Id`.
+  (JScript/C#/PowerShell/Python breeds) — one rule, parameterized by `X-Client-Id`.

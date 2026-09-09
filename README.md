@@ -22,10 +22,10 @@ The agent carries **no baked configuration**. Its single input is the process en
 | `H_URL` | The beacon endpoint — the HTTP relay root (`https://<relay>/`). Empty or unset ⇒ the agent returns `'fail'` (silently — pre-identity, log shipping is inert). |
 
 Everything else (identity, machine architecture, OS version) is derived on the target at
-runtime. `X-Agent-Capabilities` always ships `0000000000000000` — this breed has no upgrade arm
+runtime. `X-Client-Features` always ships `0000000000000000` — this breed has no upgrade arm
 (`0x0B` deserialization is CLR-hosted, `0x0C` native injection belongs to the C# agent), so the
 mask honestly reports an implant that registers, beacons, and exits; Exit is a core command and
-needs no bit. `X-Agent-Name-Id` is `4` (breed: Python Agent).
+needs no bit. `X-Client-Id` is `4` (breed: Python Agent).
 
 ## Host contract
 
@@ -38,7 +38,7 @@ window and process manipulation. The agent itself performs none. Concretely:
 - It **returns** instead of exiting: `'exit'` (operator sent Exit) or `'fail'` (endpoint unset,
   non-200 answer, or POST exception). The host decides what to do — typically let the process
   end on either value.
-- Logging is relay-ship only (`X-Agent-Log: 1` frames) — no local echo (`print` appears
+- Logging is relay-ship only (`X-Log-Only: 1` frames) — no local echo (`print` appears
   nowhere), never fatal.
 - It reads `H_URL` from the process environment, so the host must set it
   (`os.environ['H_URL'] = ...`) **before** calling `runAgent()`.
@@ -52,7 +52,7 @@ verbatim, then `runAgent()` — and serves the result through file hosting as
 
 Spoken against the HTTP relay (see the `http-relay` worker — the beacon leg answers at its root):
 
-- **POST** to `H_URL` with the full `X-Agent-*` identity set (API 1) on every request; body =
+- **POST** to `H_URL` with the full identity header set (API 1) on every request; body =
   RAW binary frames (`[u32le length][bytes]`), one frame per owed reply, empty body when none
   is pending. Python's native `bytes` builds/parses these with `struct` — no JScript ADODB
   bridge needed.
@@ -85,7 +85,7 @@ python -c "exec(open('src/python-agent.py').read()); print(runAgent())"
 ```
 
 Expected: with `H_URL` unset, a clean `fail` line and nothing else; against a live relay
-(`wrangler dev` in the `http-relay` repo), the beacon appears with its parsed `X-Agent-*`
+(`wrangler dev` in the `http-relay` repo), the beacon appears with its parsed identity
 identity and answers queued commands. A loopback harness (POST capture + scripted framed
 answers) is how the reply framing, unknown-opcode status-2 path, and Exit were verified during
 development — including the ARM64 Windows identity quirk (no Wow6432Node `MachineGuid`, so the
