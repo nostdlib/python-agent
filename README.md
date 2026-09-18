@@ -52,7 +52,10 @@ verbatim, then `runAgent()` — and serves the result through file hosting as
 
 Spoken against the HTTP relay (see the `http-relay` worker — the beacon leg answers at its root):
 
-- **POST** to `H_URL` with the full identity header set (API 1) on every request; body =
+- **POST** to `H_URL` with the full identity header set (API 1) on every request, plus a
+  browser `User-Agent` (NOT optional: Cloudflare's Browser Integrity Check 403s urllib's
+  default `Python-urllib/x` signature — error 1010 — before the request ever reaches the
+  worker); body =
   RAW binary frames (`[u32le length][bytes]`), one frame per owed reply, empty body when none
   is pending. Python's native `bytes` builds/parses these with `struct` — no JScript ADODB
   bridge needed.

